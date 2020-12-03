@@ -9,7 +9,7 @@
 #' parity(3) # odd
 #' parity(4) # even
 parity <- function(number) {
-  list(parity = if (as.integer(int) %% 2 == 0) "even" else "odd")
+  list(parity = if (as.integer(number) %% 2 == 0) "even" else "odd")
 }
 
 #' A nullary function that returns the current version of R
