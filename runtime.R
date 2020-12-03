@@ -1,7 +1,7 @@
 library(httr)
 
 setwd(Sys.getenv("LAMBDA_TASK_ROOT"))
-
+#
 # Retrieve environnment variables and define Lambda API endpoints
 
 lambda_runtime_api <- Sys.getenv("AWS_LAMBDA_RUNTIME_API")
@@ -56,7 +56,7 @@ tryCatch(
 
 # This infinite loop does the actual function work. It continuously checks for
 # events.
-while (True) {
+while (TRUE) {
 
   event <- GET(next_invocation_endpoint)
   event_headers <- headers(event)
