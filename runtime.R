@@ -4,10 +4,10 @@ setwd(Sys.getenv("LAMBDA_TASK_ROOT"))
 
 # Retrieve environnment variables and define Lambda API endpoints
 
-lambda_runtime_api <- Sys.getenv(
-  "AWS_LAMBDA_RUNTIME_API",
+lambda_runtime_api <- Sys.getenv("AWS_LAMBDA_RUNTIME_API")
+if (lambda_runtime_api == "") {
   stop("AWS_LAMBDA_RUNTIME_API environment variable undefined")
-)
+}
 next_invocation_endpoint <- paste0(
   "http://", lambda_runtime_api, "/2018-06-01/runtime/invocation/next"
 )
@@ -38,10 +38,8 @@ determine_invocation_error_endpoint <- function(aws_request_id) {
 
 tryCatch(
   {
-    handler <- Sys.getenv(
-      "_HANDLER",
-      stop("_HANDLER environment variable undefined")
-    )
+    handler <- Sys.getenv("_HANDLER",)
+    if (handler == "") stop("_HANDLER environment variable undefined")
     handler_split <- strsplit(handler, ".", fixed = TRUE)[[1]]
     file_name <- paste0(handler_split[1], ".R")
     function_name <- handler_split[2]
