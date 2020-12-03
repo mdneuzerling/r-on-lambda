@@ -60,13 +60,24 @@ while (TRUE) {
 
   event <- GET(next_invocation_endpoint)
   event_headers <- headers(event)
-  aws_request_id <- event_headers[["Lambda-Runtime-Aws-Request-Id"]]
-  runtime_trace_id <- event_headers[["Lambda-Runtime-Trace-Id"]]
+
+  # I've encountered a few issues with headers and mismatched cases. I suspect
+  # that httr is converting header names to lower-case. Since HTTP headers are
+  # _supposedly_ case-insensitive, I'll convert the names to lower-case myself
+  # as a precaution.
+  names(event_headers) <- tolower(names(event_headers))
+  aws_request_id <- event_headers[["lambda-runtime-aws-request-id"]]
+  if (is.null(aws_request_id)) {
+    stop("Could not find lambda-runtime-aws-request-id header in event")
+  }
 
   # The following is used by "X-Ray SDK". I'm suspicious that setting a trace ID
   # as an environment variable is suspicious --- I'm surprised we don't need to
   # forward it on as a header in the response.
-  Sys.setenv("_X_AMZN_TRACE_ID" = runtime_trace_id)
+  runtime_trace_id <- event_headers[["lambda-runtime-trace-id"]]
+  if (!is.null(runtime_trace_id)) {
+    Sys.setenv("_X_AMZN_TRACE_ID" = runtime_trace_id)
+  }
 
   tryCatch(
     {
