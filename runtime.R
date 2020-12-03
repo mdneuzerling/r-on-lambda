@@ -43,7 +43,7 @@ tryCatch(
   error = function(e) {
     POST(
       URL = initialisation_error_endpoint,
-      body = {error_message = e}
+      body = list(error_message = e),
       encode = "json"
     )
   }
@@ -76,7 +76,7 @@ while (True) {
     error = function(e) {
       POST(
         URL = invocation_error_endpoint,
-        body = {error_message = e}
+        body = list(error_message = e),
         encode = "json"
       )
     }
