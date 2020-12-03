@@ -47,7 +47,7 @@ tryCatch(
   },
   error = function(e) {
     POST(
-      URL = initialisation_error_endpoint,
+      url = initialisation_error_endpoint,
       body = list(error_message = e),
       encode = "json"
     )
@@ -58,7 +58,7 @@ tryCatch(
 # events.
 while (TRUE) {
 
-  event <- GET(next_invocation_endpoint)
+  event <- GET(url = next_invocation_endpoint)
   event_headers <- headers(event)
 
   # I've encountered a few issues with headers and mismatched cases. I suspect
@@ -92,7 +92,7 @@ while (TRUE) {
         aws_request_id
       )
       POST(
-        response_endpoint,
+        url = response_endpoint,
         body = result,
         encode = "json"
       )
@@ -102,7 +102,7 @@ while (TRUE) {
         aws_request_id
       )
       POST(
-        URL = invocation_error_endpoint,
+        url = invocation_error_endpoint,
         body = list(error_message = e),
         encode = "json"
       )
