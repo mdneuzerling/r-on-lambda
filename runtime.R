@@ -43,7 +43,17 @@ tryCatch(
     handler_split <- strsplit(handler, ".", fixed = TRUE)[[1]]
     file_name <- paste0(handler_split[1], ".R")
     function_name <- handler_split[2]
+
+    if (!file.exists(file_name)) {
+      stop(file_name, " doesn't exist in ", getwd())
+    }
     source(file_name)
+
+    if (!exists(function_name)) {
+      stop(function_name, " doesn't exist")
+    } else if (!is.function(eval(parse(text = function_name)))) {
+      stop(function_name, " is not a function")
+    }
   },
   error = function(e) {
     POST(
@@ -83,9 +93,13 @@ while (TRUE) {
     {
       # This is a likely source of errors --- converting the body of the
       # event/request and interpreting it as an R list.
-      event_content <- jsonlite::fromJSON(
-        httr::content(event, "text", encoding = "UTF-8")
-      )
+      unparsed_content <- httr::content(event, "text", encoding = "UTF-8")
+      # If there's no body, then there are no function arguments
+      event_content <- if (unparsed_content == "") {
+        list()
+      } else {
+        jsonlite::fromJSON(unparsed_content)
+      }
 
       result <- do.call(function_name, event_content)
       response_endpoint <- determine_invocation_response_endpoint(
