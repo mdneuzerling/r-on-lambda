@@ -112,78 +112,83 @@ tryCatch(
   }
 )
 
+handle_event <- function(event) {
+  status_code <- status_code(event)
+  log_debug("Status code:", status_code)
+  if (status_code != 200) {
+    stop("Didn't get status code 200. Status code: ", status_code)
+  }
+  event_headers <- headers(event)
+
+  # I've encountered a few issues with headers and mismatched cases. I
+  # suspect that httr is converting header names to lower-case. Since HTTP
+  # headers are _supposedly_ case-insensitive, I'll convert the names to
+  # lower-case myself as a precaution.
+  names(event_headers) <- tolower(names(event_headers))
+  log_debug("Event headers:", prettify_list(event_headers))
+
+  aws_request_id <- event_headers[["lambda-runtime-aws-request-id"]]
+  if (is.null(aws_request_id)) {
+    stop("Could not find lambda-runtime-aws-request-id header in event")
+  }
+
+  # The following is used by "X-Ray SDK". I'm suspicious that setting a
+  # trace ID as an environment variable is suspicious --- I'm surprised we
+  # don't need to forward it on as a header in the response.
+  runtime_trace_id <- event_headers[["lambda-runtime-trace-id"]]
+  if (!is.null(runtime_trace_id)) {
+    Sys.setenv("_X_AMZN_TRACE_ID" = runtime_trace_id)
+  }
+
+  # This is a likely source of errors --- converting the body of the
+  # event/request and interpreting it as an R list.
+  unparsed_content <- httr::content(event, "text", encoding = "UTF-8")
+  log_debug("Unparsed content:", unparsed_content)
+  # If there's no body, then there are no function arguments
+  event_content <- if (unparsed_content == "") {
+    list()
+  } else {
+    tryCatch(
+      jsonlite::fromJSON(unparsed_content),
+      error = function(e) {
+        stop("Couldn't parse as JSON: ", unparsed_content)
+      }
+    )
+  }
+
+  if (length(event_content) == 0) {
+    log_debug("Calling function", function_name, "with no args")
+  } else {
+    log_debug(
+      "Calling function",
+      function_name,
+      "with args",
+      prettify_list(event_content)
+    )
+  }
+  result <- do.call(function_name, event_content)
+  log_debug("Result:", as.character(result))
+  response_endpoint <- determine_invocation_response_endpoint(
+    aws_request_id
+  )
+  POST(
+    url = response_endpoint,
+    body = result,
+    encode = "json"
+  )
+  rm("aws_request_id")
+}
+
 # This infinite loop does the actual function work. It continuously checks for
 # events.
 log_info("Querying for events")
 while (TRUE) {
   tryCatch(
     {
-      log_debug("Retrieving event")
+      log_debug("Waiting for event")
       event <- GET(url = next_invocation_endpoint)
-      status_code <- status_code(event)
-      log_debug("Status code:", status_code)
-      if (status_code != 200) {
-        stop("Didn't get status code 200. Status code: ", status_code)
-      }
-      event_headers <- headers(event)
-
-      # I've encountered a few issues with headers and mismatched cases. I
-      # suspect that httr is converting header names to lower-case. Since HTTP
-      # headers are _supposedly_ case-insensitive, I'll convert the names to
-      # lower-case myself as a precaution.
-      names(event_headers) <- tolower(names(event_headers))
-      log_debug("Event headers:", prettify_list(event_headers))
-
-      aws_request_id <- event_headers[["lambda-runtime-aws-request-id"]]
-      if (is.null(aws_request_id)) {
-        stop("Could not find lambda-runtime-aws-request-id header in event")
-      }
-
-      # The following is used by "X-Ray SDK". I'm suspicious that setting a
-      # trace ID as an environment variable is suspicious --- I'm surprised we
-      # don't need to forward it on as a header in the response.
-      runtime_trace_id <- event_headers[["lambda-runtime-trace-id"]]
-      if (!is.null(runtime_trace_id)) {
-        Sys.setenv("_X_AMZN_TRACE_ID" = runtime_trace_id)
-      }
-
-      # This is a likely source of errors --- converting the body of the
-      # event/request and interpreting it as an R list.
-      unparsed_content <- httr::content(event, "text", encoding = "UTF-8")
-      log_debug("Unparsed content:", unparsed_content)
-      # If there's no body, then there are no function arguments
-      event_content <- if (unparsed_content == "") {
-        list()
-      } else {
-        tryCatch(
-          jsonlite::fromJSON(unparsed_content),
-          error = function(e) {
-            stop("Couldn't parse as JSON: ", unparsed_content)
-          }
-        )
-      }
-
-      if (length(event_content) == 0) {
-        log_debug("Calling function", function_name, "with no args")
-      } else {
-        log_debug(
-          "Calling function",
-          function_name,
-          "with args",
-          prettify_list(event_content)
-        )
-      }
-      result <- do.call(function_name, event_content)
-      log_debug("Result:", as.character(result))
-      response_endpoint <- determine_invocation_response_endpoint(
-        aws_request_id
-      )
-      POST(
-        url = response_endpoint,
-        body = result,
-        encode = "json"
-      )
-      rm("aws_request_id")
+      log_debug("Event received")
+      handle_event(event)
     },
     error = function(e) {
       log_error(as.character(e))
