@@ -2,7 +2,7 @@
 #'
 #' @param number Integer
 #'
-#' @return "even" or "odd"
+#' @return list(parity = "even" or "odd")
 #' @export
 #'
 #' @examples
@@ -14,11 +14,22 @@ parity <- function(number) {
 
 #' A nullary function that returns the current version of R
 #'
-#' @return character
+#' @return list(response = character)
 #' @export
 #'
 #' @examples
 #' hello()
 hello <- function() {
   list(response = paste("Hello from", version$version.string))
+}
+
+#' Wait 5 seconds, then return the time
+#'
+#' @return list(time = double)
+#'
+#' @examples
+#' wait()
+wait <- function() {
+  Sys.sleep(5)
+  list(time = Sys.time())
 }
