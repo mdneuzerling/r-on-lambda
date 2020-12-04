@@ -6,7 +6,8 @@ RUN yum -y install wget
 
 RUN yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm \
   && wget https://cdn.rstudio.com/r/centos-7/pkgs/R-${R_VERSION}-1-1.x86_64.rpm \
-  && yum -y install R-${R_VERSION}-1-1.x86_64.rpm
+  && yum -y install R-${R_VERSION}-1-1.x86_64.rpm \
+  && rm R-${R_VERSION}-1-1.x86_64.rpm
 
 ENV PATH="${PATH}:/opt/R/${R_VERSION}/bin/"
 
