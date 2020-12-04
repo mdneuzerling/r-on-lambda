@@ -1,12 +1,36 @@
 library(httr)
+library(logger)
+log_threshold(INFO)
+log_formatter(formatter_paste)
+
+#' Convert a list to a single character, preserving names
+#'
+#' @param x Named list
+#'
+#' @return character
+#'
+#' @examples
+#' prettify_list(list("a" = 1, "b" = 2, "c" = 3))
+#' # "a=5, b=5, c=5"
+prettify_list <- function(x) {
+  paste(
+    paste(names(x), x, sep = "="),
+    collapse = ", "
+  )
+}
+
+log_info("Initialising Lambda")
 
 setwd(Sys.getenv("LAMBDA_TASK_ROOT"))
 #
 # Retrieve environnment variables and define Lambda API endpoints
 
+log_debug("Deriving lambda runtime API endpoints from environment variables")
 lambda_runtime_api <- Sys.getenv("AWS_LAMBDA_RUNTIME_API")
 if (lambda_runtime_api == "") {
-  stop("AWS_LAMBDA_RUNTIME_API environment variable undefined")
+  error_message <- "AWS_LAMBDA_RUNTIME_API environment variable undefined"
+  log_error(error_message)
+  stop(error_message)
 }
 next_invocation_endpoint <- paste0(
   "http://", lambda_runtime_api, "/2018-06-01/runtime/invocation/next"
@@ -30,6 +54,19 @@ determine_invocation_error_endpoint <- function(aws_request_id) {
   )
 }
 
+submit_invocation_error_if_possible <- function(e) {
+  if (exists("aws_request_id")) {
+    invocation_error_endpoint <- determine_invocation_error_endpoint(
+      aws_request_id
+    )
+    POST(
+      url = invocation_error_endpoint,
+      body = list(error_message = as.character(e)),
+      encode = "json"
+    )
+  }
+}
+
 # If an error has occurred before now, we'd have no way to report it, since we'd
 # need that `initialisation_error_endpoint`. The final part of the
 # initialisation is to retrieve the handler, which is of the form
@@ -38,70 +75,106 @@ determine_invocation_error_endpoint <- function(aws_request_id) {
 
 tryCatch(
   {
-    handler <- Sys.getenv("_HANDLER",)
-    if (handler == "") stop("_HANDLER environment variable undefined")
+    log_debug("Determining handler from environment variables")
+    handler <- Sys.getenv("_HANDLER")
+    if (is.null(handler) || handler == "") {
+      stop("_HANDLER environment variable undefined")
+    }
+    log_info("Handler found:", handler)
     handler_split <- strsplit(handler, ".", fixed = TRUE)[[1]]
     file_name <- paste0(handler_split[1], ".R")
     function_name <- handler_split[2]
+    log_info("Using function", function_name, "from", file_name)
 
+    log_debug("Checking if", file_name, "exists")
     if (!file.exists(file_name)) {
       stop(file_name, " doesn't exist in ", getwd())
     }
     source(file_name)
 
+    log_debug("Checking if", function_name, "is defined")
     if (!exists(function_name)) {
-      stop(function_name, " doesn't exist")
-    } else if (!is.function(eval(parse(text = function_name)))) {
-      stop(function_name, " is not a function")
+      stop("Function name ", function_name, " isn't defined in R")
+    }
+    log_debug("Checking if", function_name, "is a function")
+    if (!is.function(eval(parse(text = function_name)))) {
+      stop("Function name ", function_name, " is not a function")
     }
   },
   error = function(e) {
+    log_error(as.character(e))
     POST(
       url = initialisation_error_endpoint,
-      body = list(error_message = e),
+      body = list(error_message = as.character(e)),
       encode = "json"
     )
+    stop(e)
   }
 )
 
 # This infinite loop does the actual function work. It continuously checks for
 # events.
+log_info("Querying for events")
 while (TRUE) {
-
-  event <- GET(url = next_invocation_endpoint)
-  event_headers <- headers(event)
-
-  # I've encountered a few issues with headers and mismatched cases. I suspect
-  # that httr is converting header names to lower-case. Since HTTP headers are
-  # _supposedly_ case-insensitive, I'll convert the names to lower-case myself
-  # as a precaution.
-  names(event_headers) <- tolower(names(event_headers))
-  aws_request_id <- event_headers[["lambda-runtime-aws-request-id"]]
-  if (is.null(aws_request_id)) {
-    stop("Could not find lambda-runtime-aws-request-id header in event")
-  }
-
-  # The following is used by "X-Ray SDK". I'm suspicious that setting a trace ID
-  # as an environment variable is suspicious --- I'm surprised we don't need to
-  # forward it on as a header in the response.
-  runtime_trace_id <- event_headers[["lambda-runtime-trace-id"]]
-  if (!is.null(runtime_trace_id)) {
-    Sys.setenv("_X_AMZN_TRACE_ID" = runtime_trace_id)
-  }
-
   tryCatch(
     {
+      log_debug("Retrieving event")
+      event <- GET(url = next_invocation_endpoint)
+      status_code <- status_code(event)
+      log_debug("Status code:", status_code)
+      if (status_code != 200) {
+        stop("Didn't get status code 200. Status code: ", status_code)
+      }
+      event_headers <- headers(event)
+
+      # I've encountered a few issues with headers and mismatched cases. I
+      # suspect that httr is converting header names to lower-case. Since HTTP
+      # headers are _supposedly_ case-insensitive, I'll convert the names to
+      # lower-case myself as a precaution.
+      names(event_headers) <- tolower(names(event_headers))
+      log_debug("Event headers:", prettify_list(event_headers))
+
+      aws_request_id <- event_headers[["lambda-runtime-aws-request-id"]]
+      if (is.null(aws_request_id)) {
+        stop("Could not find lambda-runtime-aws-request-id header in event")
+      }
+
+      # The following is used by "X-Ray SDK". I'm suspicious that setting a
+      # trace ID as an environment variable is suspicious --- I'm surprised we
+      # don't need to forward it on as a header in the response.
+      runtime_trace_id <- event_headers[["lambda-runtime-trace-id"]]
+      if (!is.null(runtime_trace_id)) {
+        Sys.setenv("_X_AMZN_TRACE_ID" = runtime_trace_id)
+      }
+
       # This is a likely source of errors --- converting the body of the
       # event/request and interpreting it as an R list.
       unparsed_content <- httr::content(event, "text", encoding = "UTF-8")
+      log_debug("Unparsed content:", unparsed_content)
       # If there's no body, then there are no function arguments
       event_content <- if (unparsed_content == "") {
         list()
       } else {
-        jsonlite::fromJSON(unparsed_content)
+        tryCatch(
+          jsonlite::fromJSON(unparsed_content),
+          error = function(e) {
+            stop("Couldn't parse as JSON: ", unparsed_content)
+          }
+        )
       }
 
+      if (length(event_content) == 0) {
+        log_debug("Calling function", function_name, "with no args")
+      } else {
+        log_debug(
+          "Calling function",
+          function_name,
+          "with args",
+          prettify_list(event_content)
+        )
+      }
       result <- do.call(function_name, event_content)
+      log_debug("Result:", as.character(result))
       response_endpoint <- determine_invocation_response_endpoint(
         aws_request_id
       )
@@ -110,16 +183,12 @@ while (TRUE) {
         body = result,
         encode = "json"
       )
+      rm("aws_request_id")
     },
     error = function(e) {
-      invocation_error_endpoint <- determine_invocation_error_endpoint(
-        aws_request_id
-      )
-      POST(
-        url = invocation_error_endpoint,
-        body = list(error_message = e),
-        encode = "json"
-      )
+      log_error(as.character(e))
+      submit_invocation_error_if_possible(e)
+      stop(e)
     }
   )
 }
