@@ -156,16 +156,6 @@ handle_event <- function(event) {
     )
   }
 
-  if (length(event_content) == 0) {
-    log_debug("Calling function", function_name, "with no args")
-  } else {
-    log_debug(
-      "Calling function",
-      function_name,
-      "with args",
-      prettify_list(event_content)
-    )
-  }
   result <- do.call(function_name, event_content)
   log_debug("Result:", as.character(result))
   response_endpoint <- determine_invocation_response_endpoint(
