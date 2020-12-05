@@ -1,15 +1,9 @@
 library(httr)
 library(logger)
-log_threshold(INFO)
 log_formatter(formatter_paste)
+log_threshold(INFO)
 
 #' Convert a list to a single character, preserving names
-#'
-#' @param x Named list
-#'
-#' @return character
-#'
-#' @examples
 #' prettify_list(list("a" = 1, "b" = 2, "c" = 3))
 #' # "a=5, b=5, c=5"
 prettify_list <- function(x) {
@@ -18,12 +12,6 @@ prettify_list <- function(x) {
     collapse = ", "
   )
 }
-
-log_info("Initialising Lambda")
-
-setwd(Sys.getenv("LAMBDA_TASK_ROOT"))
-#
-# Retrieve environnment variables and define Lambda API endpoints
 
 log_debug("Deriving lambda runtime API endpoints from environment variables")
 lambda_runtime_api <- Sys.getenv("AWS_LAMBDA_RUNTIME_API")
@@ -38,40 +26,6 @@ next_invocation_endpoint <- paste0(
 initialisation_error_endpoint <- paste0(
   "http://", lambda_runtime_api, "/2018-06-01/runtime/init/error"
 )
-
-# These next two endpoints depend on the request ID which changes with every
-# event. We define them as functions of this variable.
-determine_invocation_response_endpoint <- function(aws_request_id) {
-  paste0(
-    "http://", lambda_runtime_api, "/2018-06-01/runtime/invocation/",
-    aws_request_id, "/response"
-  )
-}
-determine_invocation_error_endpoint <- function(aws_request_id) {
-  paste0(
-    "http://", lambda_runtime_api, "/2018-06-01/runtime/invocation/",
-    aws_request_id, "/error"
-  )
-}
-
-submit_invocation_error_if_possible <- function(e) {
-  if (exists("aws_request_id")) {
-    invocation_error_endpoint <- determine_invocation_error_endpoint(
-      aws_request_id
-    )
-    POST(
-      url = invocation_error_endpoint,
-      body = list(error_message = as.character(e)),
-      encode = "json"
-    )
-  }
-}
-
-# If an error has occurred before now, we'd have no way to report it, since we'd
-# need that `initialisation_error_endpoint`. The final part of the
-# initialisation is to retrieve the handler, which is of the form
-# "file.function". From this we can source the appropriate file by appending a
-# ".R" extension.
 
 tryCatch(
   {
@@ -120,10 +74,7 @@ handle_event <- function(event) {
   }
   event_headers <- headers(event)
 
-  # I've encountered a few issues with headers and mismatched cases. I
-  # suspect that httr is converting header names to lower-case. Since HTTP
-  # headers are _supposedly_ case-insensitive, I'll convert the names to
-  # lower-case myself as a precaution.
+  # HTTP headers are case-insensitive
   names(event_headers) <- tolower(names(event_headers))
   log_debug("Event headers:", prettify_list(event_headers))
 
@@ -132,57 +83,55 @@ handle_event <- function(event) {
     stop("Could not find lambda-runtime-aws-request-id header in event")
   }
 
-  # The following is used by "X-Ray SDK". I'm suspicious that setting a
-  # trace ID as an environment variable is suspicious --- I'm surprised we
-  # don't need to forward it on as a header in the response.
+  # According to the AWS guide, the below is used by "X-Ray SDK"
   runtime_trace_id <- event_headers[["lambda-runtime-trace-id"]]
   if (!is.null(runtime_trace_id)) {
     Sys.setenv("_X_AMZN_TRACE_ID" = runtime_trace_id)
   }
 
-  # This is a likely source of errors --- converting the body of the
-  # event/request and interpreting it as an R list.
   unparsed_content <- httr::content(event, "text", encoding = "UTF-8")
   log_debug("Unparsed content:", unparsed_content)
-  # If there's no body, then there are no function arguments
   event_content <- if (unparsed_content == "") {
-    list()
+    list() # If there's no body, then there are no function arguments
   } else {
-    tryCatch(
-      jsonlite::fromJSON(unparsed_content),
-      error = function(e) {
-        stop("Couldn't parse as JSON: ", unparsed_content)
-      }
-    )
+    jsonlite::fromJSON(unparsed_content)
   }
 
   result <- do.call(function_name, event_content)
   log_debug("Result:", as.character(result))
-  response_endpoint <- determine_invocation_response_endpoint(
-    aws_request_id
+  response_endpoint <- paste0(
+    "http://", lambda_runtime_api, "/2018-06-01/runtime/invocation/",
+    aws_request_id, "/response"
   )
   POST(
     url = response_endpoint,
     body = result,
     encode = "json"
   )
-  rm("aws_request_id")
+  rm("aws_request_id") # so we don't report errors to an outdated endpoint
 }
 
-# This infinite loop does the actual function work. It continuously checks for
-# events.
 log_info("Querying for events")
 while (TRUE) {
   tryCatch(
     {
-      log_debug("Waiting for event")
       event <- GET(url = next_invocation_endpoint)
       log_debug("Event received")
       handle_event(event)
     },
     error = function(e) {
       log_error(as.character(e))
-      submit_invocation_error_if_possible(e)
+      if (exists("aws_request_id")) {
+        invocation_error_endpoint <- paste0(
+          "http://", lambda_runtime_api, "/2018-06-01/runtime/invocation/",
+          aws_request_id, "/error"
+        )
+        POST(
+          url = invocation_error_endpoint,
+          body = list(error_message = as.character(e)),
+          encode = "json"
+        )
+      }
       stop(e)
     }
   )
