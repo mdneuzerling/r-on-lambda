@@ -90,9 +90,12 @@ handle_event <- function(event) {
   }
 
   unparsed_content <- httr::content(event, "text", encoding = "UTF-8")
+  # Thank you to Menno Schellekens for this fix for Cloudwatch events
+  is_scheduled_event <- grepl("Scheduled Event", unparsed_content)
+  if(is_scheduled_event) log_info("Event type is scheduled") 
   log_debug("Unparsed content:", unparsed_content)
-  event_content <- if (unparsed_content == "") {
-    list() # If there's no body, then there are no function arguments
+  event_content <- if (unparsed_content == "" || is_scheduled_event) {
+    list()  # If there's no body or a scheduled event, then there are no function arguments
   } else {
     jsonlite::fromJSON(unparsed_content)
   }
