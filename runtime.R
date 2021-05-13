@@ -89,16 +89,48 @@ handle_event <- function(event) {
     Sys.setenv("_X_AMZN_TRACE_ID" = runtime_trace_id)
   }
 
+  # we need to parse the event in four contexts before sending to the handler:
+  # 1a) direct invocation with no function args (empty event)
+  # 1b) direct invocation with function args (parse and send entire event)
+  # 2a) api endpoint with no args (parse HTTP request, confirm null request
+  #   element; send empty list)
+  # 2b) api endpoint with args (parse HTTP request, confirm non-null request
+  #   element; extract and send it)
+  
   unparsed_content <- httr::content(event, "text", encoding = "UTF-8")
   # Thank you to Menno Schellekens for this fix for Cloudwatch events
   is_scheduled_event <- grepl("Scheduled Event", unparsed_content)
   if(is_scheduled_event) log_info("Event type is scheduled") 
   log_debug("Unparsed content:", unparsed_content)
-  event_content <- if (unparsed_content == "" || is_scheduled_event) {
-    list()  # If there's no body or a scheduled event, then there are no function arguments
+  if (unparsed_content == "" || is_scheduled_event) {
+    # (1a) direct invocation with no args (or scheduled request)
+    event_content <- list()
   } else {
-    jsonlite::fromJSON(unparsed_content)
+    # (1b, 2a or 2b)
+    event_content <- jsonlite::fromJSON(unparsed_content)
   }
+  
+  # if you want to do any additional inspection of the event body (including
+  # other http request elements if it's an endpoint), you can do that here!
+  
+  # change `http_req_element` if you'd prefer to send the http request `body` to
+  # the handler, rather than the query parameters
+  # (note that query string params are always strings! your handler fn may need to
+  # convert them back to numeric/logical/Date/etc.)
+  is_http_req <- FALSE
+  http_req_element <- "queryStringParameters"
+
+  if (http_req_element %in% names(event_content)) {
+    is_http_req <- TRUE
+    if (is.null(event_content[[http_req_element]])) {
+      # (2a) api request with no args
+      event_content <- list()
+    } else {
+      # (2b) api request with args
+      event_content <- event_content[[http_req_element]]
+    }
+  }
+  
 
   result <- do.call(function_name, event_content)
   log_debug("Result:", as.character(result))
