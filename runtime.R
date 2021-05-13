@@ -89,7 +89,7 @@ handle_event <- function(event) {
     Sys.setenv("_X_AMZN_TRACE_ID" = runtime_trace_id)
   }
 
-  # we need to parse the event in four contexts before sending to the handler:
+  # we need to parse the event in four contexts before sending to the lambda fn:
   # 1a) direct invocation with no function args (empty event)
   # 1b) direct invocation with function args (parse and send entire event)
   # 2a) api endpoint with no args (parse HTTP request, confirm null request
@@ -114,8 +114,8 @@ handle_event <- function(event) {
   # other http request elements if it's an endpoint), you can do that here!
   
   # change `http_req_element` if you'd prefer to send the http request `body` to
-  # the handler, rather than the query parameters
-  # (note that query string params are always strings! your handler fn may need to
+  # the lambda fn, rather than the query parameters
+  # (note that query string params are always strings! your lambda fn may need to
   # convert them back to numeric/logical/Date/etc.)
   is_http_req <- FALSE
   http_req_element <- "queryStringParameters"
@@ -131,7 +131,6 @@ handle_event <- function(event) {
     }
   }
   
-
   result <- do.call(function_name, event_content)
   log_debug("Result:", as.character(result))
   response_endpoint <- paste0(
