@@ -137,9 +137,19 @@ handle_event <- function(event) {
     "http://", lambda_runtime_api, "/2018-06-01/runtime/invocation/",
     aws_request_id, "/response"
   )
+  # aws api gateway is a bit particular about the response format
+  body <- if (is_http_req) {
+    list(
+      isBase64Encoded = FALSE,
+      statusCode = 200L,
+      body = result
+      )
+  } else {
+    result
+  }
   POST(
     url = response_endpoint,
-    body = result,
+    body = body,
     encode = "json"
   )
   rm("aws_request_id") # so we don't report errors to an outdated endpoint
