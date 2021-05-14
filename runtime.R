@@ -118,7 +118,7 @@ handle_event <- function(event) {
   unparsed_content <- httr::content(event, "text", encoding = "UTF-8")
   # Thank you to Menno Schellekens for this fix for Cloudwatch events
   is_scheduled_event <- grepl("Scheduled Event", unparsed_content)
-  if(is_scheduled_event) log_info("Event type is scheduled") 
+  if(is_scheduled_event) log_info("Event type is scheduled")
   log_debug("Unparsed content:", unparsed_content)
   if (unparsed_content == "" || is_scheduled_event) {
     # (1a) direct invocation with no args (or scheduled request)
@@ -160,7 +160,7 @@ handle_event <- function(event) {
     list(
       isBase64Encoded = FALSE,
       statusCode = 200L,
-      body = result
+      body =  as.character(jsonlite::toJSON(result))
       )
   } else {
     result
