@@ -196,7 +196,6 @@ while (TRUE) {
           body = list(
             statusCode = e$code,
             error_message = as.character(e$message)),
-          verbose(),
           encode = "json"
         )
       } else {
@@ -217,7 +216,6 @@ while (TRUE) {
         POST(
           url = invocation_error_endpoint,
           body = list(error_message = as.character(e)),
-          verbose(),
           encode = "json"
         )
       } else {
