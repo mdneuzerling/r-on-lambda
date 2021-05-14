@@ -1,7 +1,7 @@
 library(httr)
 library(logger)
 log_formatter(formatter_paste)
-log_threshold(INFO)
+log_threshold(DEBUG)
 
 #' Convert a list to a single character, preserving names
 #' prettify_list(list("a" = 1, "b" = 2, "c" = 3))
@@ -165,7 +165,10 @@ while (TRUE) {
     },
     error = function(e) {
       log_error(as.character(e))
+      aws_request_id <-
+        headers(event)[["lambda-runtime-aws-request-id"]]
       if (exists("aws_request_id")) {
+        log_debug("POSTing invocation error for ID:", aws_request_id)
         invocation_error_endpoint <- paste0(
           "http://", lambda_runtime_api, "/2018-06-01/runtime/invocation/",
           aws_request_id, "/error"
@@ -173,10 +176,13 @@ while (TRUE) {
         POST(
           url = invocation_error_endpoint,
           body = list(error_message = as.character(e)),
+          verbose(),
           encode = "json"
         )
+      } else {
+        log_debug("No invocation ID!",
+          "Can't clear this request from the queue.")
       }
-      stop(e)
     }
   )
 }
