@@ -160,7 +160,7 @@ handle_event <- function(event) {
     list(
       isBase64Encoded = FALSE,
       statusCode = 200L,
-      body =  as.character(jsonlite::toJSON(result))
+      body =  as.character(jsonlite::toJSON(result, auto_unbox = TRUE))
       )
   } else {
     result
